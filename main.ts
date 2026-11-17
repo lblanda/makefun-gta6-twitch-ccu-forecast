@@ -17,9 +17,13 @@
 // outside it, a too-wide one pays at every hour, and the pinball loss on the
 // log scale scores both the median's accuracy and the spread on one scale.
 //
-// Leave-one-out on the comparables: mean pinball loss 0.393, against 0.930
+// Leave-one-out on the comparables: mean pinball loss 0.389, against 0.930
 // for the house persistence baseline; on the large launches (hour-1 print
-// above 100,000, the size GTA VI will be) 0.215 against the baseline's 0.261.
+// above 100,000, the size GTA VI will be) 0.214 against the baseline's 0.261,
+// and 0.209 on the console-only launches. The per-hour spread is capped at
+// 0.50 log units once the hour-1 print reaches 20,000 viewers (see MAX_SD):
+// uncapped, a few wild launches inflate the outer quantiles far beyond what
+// a real launch day shows.
 // The program only uses what the case file holds: the hour-1 print and the
 // comparables. It is deterministic: the same case always gives the same bytes.
 //
@@ -49,6 +53,19 @@ const BASELINE_SIGMA = 0.15;
 /** The kernel's width on log hour-1 viewers: comparables a factor e^1.0
  *  away in hour-1 size still count, farther ones fade out. */
 const KERNEL_SIGMA = 1.0;
+/** The spread cap, in natural-log units, applied only once the launch is
+ *  already substantial (hour-1 print at or above BIG_P1). Leave-one-out:
+ *  the per-hour residual SDs run 0.46-0.59 for most hours, inflated by a few
+ *  wild launches; uncapped, the outer quantiles sit ~1.9x from the median
+ *  and pinball punishes that width whenever the actual lands near it. But
+ *  capping small launches hurts them badly (their true dispersion really is
+ *  wider), so the cap applies only at BIG_P1 and above, where it improves
+ *  every set: ALL 0.3932 -> 0.3887, p1>=20k 0.2550 -> 0.2487,
+ *  p1>=100k 0.2147 -> 0.2139, console-only 0.2345 -> 0.2091. */
+const MAX_SD = 0.50;
+/** Hour 1 at or above this many viewers counts as a launch already under
+ *  way, whose spread is safe to cap (see MAX_SD). */
+const BIG_P1 = 20000;
 /** A comparable counts only when it has its hour-1 print and at least this
  *  many launch-day hours, so a fragmentary curve cannot set the spread. */
 const MIN_LAUNCH_HOURS = 12;
@@ -141,7 +158,8 @@ const hourLogQuantiles = (
   }
   const mean = weightedMean(pairs);
   const std = weightedStd(pairs, mean);
-  return Z.map((z) => mean + z * std);
+  const capped = p1 >= BIG_P1 ? Math.min(std, MAX_SD) : std;
+  return Z.map((z) => mean + z * capped);
 };
 
 /** The forecast of one case: 23 rows, hours 2..24. */
